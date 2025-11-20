@@ -3,7 +3,7 @@ name: Sync Upstream Releases
 on:
   workflow_dispatch:  # 手动触发
   schedule:
-    - cron: "1 1 * * *"  
+    - cron: "0 */6 * * *"  # 每 6 小时自动同步
 
 jobs:
   sync-releases:
@@ -13,37 +13,32 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install GitHub CLI
-        uses: cli/cli@v2
+      # GitHub CLI 已预装，无需安装
+      - name: Check gh version
+        run: gh --version
 
       - name: Sync releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPSTREAM: noimank/tvbox   # ← 修改这里成上游仓库名，如: torvalds/linux
+          UPSTREAM: noimank/tvbox   # ← 修改这里
           CURRENT: ${{ github.repository }}
         run: |
           echo "Syncing releases from $UPSTREAM to $CURRENT"
 
-          # 获取上游所有 releases 的 tag 列表
           upstream_tags=$(gh release list -R $UPSTREAM --json tagName -q '.[].tagName')
 
           for tag in $upstream_tags; do
-            echo "Processing release tag: $tag"
+            echo "Processing release: $tag"
 
-            # 判断 release 是否已存在
             exists=$(gh release view $tag -R $CURRENT --json tagName -q '.tagName' || echo "")
             if [[ "$exists" == "$tag" ]]; then
               echo "Release $tag already exists, skipping..."
               continue
             fi
 
-            echo "Creating release $tag ..."
-
-            # 下载上游 release assets
             mkdir -p assets
             gh release download $tag -R $UPSTREAM --dir assets
 
-            # 创建发布并上传 assets
             gh release create "$tag" \
               assets/* \
               -R $CURRENT \
@@ -52,5 +47,3 @@ jobs:
 
             rm -rf assets
           done
-
-          echo "All releases synced!"
