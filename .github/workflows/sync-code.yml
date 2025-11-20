@@ -1,0 +1,47 @@
+name: Sync Upstream Code
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # 每 6 小时同步一次
+  workflow_dispatch:        # 可以手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 必须完整拉取历史
+
+      - name: Set Git identity
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/noimank/tvbox.git
+          git fetch upstream
+
+      - name: Merge upstream into your fork
+        run: |
+          # 尝试合并 upstream/main 到你的 main
+          git checkout main
+          set +e
+          git merge upstream/main -m "Sync from upstream (automated)"
+          MERGE_EXIT=$?
+          set -e
+
+          if [ $MERGE_EXIT -ne 0 ]; then
+            echo "Merge conflict! Aborting merge to prevent breaking your fork."
+            git merge --abort
+            exit 0
+          fi
+
+      - name: Push changes
+        run: |
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
