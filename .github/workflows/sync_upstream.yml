@@ -1,0 +1,75 @@
+name: Sync Upstream Code and Releases
+
+on:
+  schedule:
+    - cron: "3 1 * * 1"  # 每天 01:00 同步一次
+  workflow_dispatch:      # 支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set Git identity
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/noimank/tvbox.git
+          git fetch upstream
+
+      - name: Merge upstream into your fork
+        run: |
+          git checkout main
+          set +e
+          git merge upstream/main -m "Sync from upstream (automated)"
+          MERGE_EXIT=$?
+          set -e
+
+          if [ $MERGE_EXIT -ne 0 ]; then
+            echo "Merge conflict! Aborting merge to prevent breaking your fork."
+            git merge --abort
+            exit 0
+          fi
+
+      - name: Push changes
+        run: git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync upstream releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM: noimank/tvbox
+          CURRENT: ${{ github.repository }}
+        run: |
+          echo "Syncing releases from $UPSTREAM to $CURRENT"
+
+          upstream_tags=$(gh release list -R $UPSTREAM --json tagName -q '.[].tagName')
+
+          for tag in $upstream_tags; do
+            echo "Processing release: $tag"
+
+            exists=$(gh release view $tag -R $CURRENT --json tagName -q '.tagName' || echo "")
+            if [[ "$exists" == "$tag" ]]; then
+              echo "Release $tag already exists, skipping..."
+              continue
+            fi
+
+            mkdir -p assets
+            gh release download $tag -R $UPSTREAM --dir assets
+
+            gh release create "$tag" \
+              assets/* \
+              -R $CURRENT \
+              --title "$tag" \
+              --notes "Synced from upstream: $UPSTREAM"
+
+            rm -rf assets
+          done
